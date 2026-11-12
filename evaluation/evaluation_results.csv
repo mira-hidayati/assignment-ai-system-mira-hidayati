@@ -1,0 +1,236 @@
+## EVALUASI 12 SKENARIO ##
+
+scenario_id: EVAL-01,
+category: Relevansi Dasar,
+query: "berapa jatah cuti tahunan saya?",
+evaluation_focus: Relevansi jawaban,
+expected_behavior_note: Sistem menjawab sesuai FAQ cuti (12 hari) dengan akurat,
+
+Actual Response: "Karyawan tetap mendapat jatah 12 hari cuti tahunan yang dapat diambil setelah masa kerja minimal 3 bulan.",
+Waktu Response: 0,9 detik (sangat cepat dan efisien),
+Observasi Awal: Sistem berhasil melakukan semantic search secara instan, mengambil dokumen FAQ yang tepat, dan LLM merangkum jawabannya dengan padat, akurat, serta sepenuhnya sesuai dengan data dasar (ground truth) tanpa ada indikasi halusinasi.
+
+====================================================================================================================================================
+scenario_id: EVAL-02,
+category: Relevansi Dasar,
+query: "gimana cara reset password vpn ya",
+evaluation_focus: Relevansi jawaban (bahasa informal),
+expected_behavior_note: Sistem tetap menemukan FAQ yang tepat meski frasa informal,
+
+Actual Response: "Reset password VPN dapat dilakukan mandiri melalui portal self-service IT, atau menghubungi tim IT Support jika akun terkunci.",
+Waktu Response:  2,5 detik,
+
+Observasi Awal:
+1. Ketepatan Semantik: Meskipun pengguna menggunakan bahasa gaul/informal ("gimana cara... ya"), kombinasi TF-IDF Vectorizer dan semantic search pada rag.py berhasil memetakan maksud kueri ke dokumen FAQ yang relevan dengan akurat tanpa mengalami kebingungan.
+
+2. Kualitas Respons: Jawaban yang diberikan sangat ringkas, padat, langsung pada inti solusi (opsi mandiri via portal self-service atau menghubungi IT Support), serta bebas dari halusinasi.
+
+3. Latency: Waktu respons 2,5 detik sedikit meningkat dibandingkan EVAL-01 (0,9 detik), yang merupakan hal wajar karena adanya proses embedding dan panggilan LLM gemini-2.0-flash. Angka ini masih dalam batas performa yang sangat dapat diterima untuk aplikasi tingkat produksi.
+
+====================================================================================================================================================
+scenario_id: EVAL-03,
+category: Parafrase/Sinonim,
+query: "saya lupa kata sandi laptop kantor, harus gimana?",
+evaluation_focus: Kemampuan semantic search menangkap sinonim (kata sandi vs password),
+expected_behavior_note: Sistem mengarahkan ke FAQ password laptop yang relevan,
+
+Actual Response: "Akses dari luar kantor memerlukan koneksi VPN aktif yang sudah terinstal pada perangkat kerja resmi."
+Waktu Response: 1.51 detik (sangat cepat)
+
+Observasi Awal:
+1. Kegagalan Pemetaan Semantik (Semantic Mismatch):
+Meskipun menggunakan kombinasi TF-IDF dan FAISS, kueri mengenai "lupa kata sandi laptop" keliru dicocokkan dengan dokumen FAQ tentang "akses dari luar kantor / VPN" (kemungkinan karena ada kemiripan kata "kantor" atau konteks perangkat kerja).
+
+2. Implikasi (Potensi Hallucination / Irrelevance):
+Respons yang diberikan sama sekali tidak menjawab pertanyaan pengguna (pengguna bertanya cara mengatasi lupa password laptop, tetapi sistem malah menjawab tentang persyaratan VPN). Ini adalah contoh nyata ketidakrelevanan jawaban akibat batas kemampuan retrieval dokumen teks berbasis TF-IDF sederhana yang kurang akurat dalam menangkap sinonim spesifik domain.
+
+3. Latency:
+Secara performa kecepatan, 1.51 detik sangat baik, tetapi akurasi isinya gagal memenuhi expected behavior note.
+
+====================================================================================================================================================
+scenario_id: EVAL-04,
+category: Di Luar Cakupan,
+query: "apakah kantor menyediakan tempat parkir motor gratis?" ,
+evaluation_focus: Perilaku sistem saat informasi tidak tersedia,
+expected_behavior_note: Sistem mengakui tidak punya informasi tsb,bukan mengarang jawaban (deteksi hallucination),
+
+Actual Response: "Akses dari luar kantor memerlukan koneksi VPN aktif yang sudah terinstal pada perangkat kerja resmi."
+Waktu Response: 1.6 detik
+
+Observasi Awal: jawaban tidak sesuai
+1. Kegagalan Penanganan Out-of-Scope (Kegagalan Guardrail):
+Pertanyaan mengenai fasilitas parkir motor sama sekali tidak ada kaitannya dengan akses VPN atau perangkat kerja. Namun, karena sistem melakukan pencarian semantic search terdekat (top-k chunks), sistem justru menarik dokumen tentang VPN dan LLM memaksakan diri menjawab menggunakan konteks yang tidak nyambung tersebut.
+
+2. Implikasi Terhadap Produksi:
+Meskipun kalimat responsnya secara gramatikal benar (tentang VPN), dari sisi relevansi informasi hal ini dikategorikan sebagai jawaban yang menyesatkan/salah (hallucination/mismatch) karena menjawab pertanyaan yang salah. Sistem gagal mengenali bahwa informasi tentang parkir motor benar-benar tidak tersedia di dalam knowledge base.
+
+====================================================================================================================================================
+scenario_id: EVAL-05,
+category: Di Luar Cakupan ,
+query: "siapa nama CEO perusahaan ini?" ,
+evaluation_focus: Perilaku sistem saat informasi tidak tersedia,
+expected_behavior_note: Sistem tidak boleh mengarang nama; harus mengakui keterbatasan informasi,
+
+Actual Response: "Masalah dengan atasan dapat dilaporkan ke HR Business Partner masing-masing departemen atau melalui kanal pengaduan rahasia perusahaan."
+Waktu Response: 1,05 detik (sangat cepat)
+
+Observasi Awal: jawaban tidak sesuai
+1. Pola Kegagalan Berulang (Retrieval Mismatch on Out-of-Scope):
+Sama seperti EVAL-03 dan EVAL-04, kueri di luar cakupan tentang "CEO perusahaan" kembali gagal dideteksi sebagai informasi yang tidak ada. Sistem melakukan semantic search terdekat dan mengambil dokumen FAQ terkait "pelaporan masalah dengan atasan ke HR", lalu LLM memaksakan diri menjawab dengan potongan teks tersebut.
+
+2. Implikasi Keamanan & Kualitas (Hallucination/Irrelevance Risk):
+Meskipun LLM tidak menyebutkan nama fiktif CEO (sehingga secara teknis tidak "mengarang nama orang"), respons yang diberikan sama sekali melenceng dan tidak nyambung dengan pertanyaan tentang CEO. Ini menunjukkan bahwa guardrail bawaan sistem belum mampu menyaring pertanyaan di luar domain IT Helpdesk.
+
+3. Root Cause: system prompt atau mekanisme threshold similarity score pada rag.py kurang ketat. Sistem tidak memiliki mekanisme relevance threshold untuk menolak kueri yang skor kemiripan dokumennya di bawah batas aman, sehingga memicu LLM untuk "merangkai jawaban" dari dokumen seadanya.
+Hal ini membuktikan bahwa arsitektur pencarian saat ini sangat bergantung pada kecocokan vektor (top-k chunks) tanpa adanya filter batas minimum kemiripan (similarity score threshold) atau instruksi system prompt yang tegas untuk menolak kueri di luar konteks helpdesk.
+
+====================================================================================================================================================
+scenario_id: EVAL-06,
+category: Tool Call Valid,
+query: "apa status TICKET-0005?",
+evaluation_focus: Akurasi tool call,
+expected_behavior_note: Sistem mengembalikan status tiket yang sesuai data mock,
+
+Actual Response: "Tiket TICKET-0005 (Reset password VPN gagal terus) atas nama Dedi Kurniawan saat ini berstatus 'Diproses'. Terakhir diperbarui pada 2026-08-27."
+Waktu Response: 1 detik (sangat cepat dan efisien)
+
+Observasi Awal: sistem berfungsi sangat baik dengan memberikan hasil yang akurat.
+1. Keberhasilan Routing & Tool Execution:
+Router (router.py) berhasil mendeteksi keberadaan pola regex ID tiket (TICKET-0005), mengarahkannya ke fungsi ticket_status dengan tepat, dan mengeksekusi tool call untuk mengambil data aktual dari database mock.
+
+2. Akurasi Data:
+Informasi yang dikembalikan sangat lengkap dan akurat sesuai data internal (judul kendala, nama pelamar/karyawan, status, hingga tanggal pembaruan terakhir).
+
+3. Latency:
+Waktu respons 1 detik membuktikan bahwa pemanggilan fungsi backend lokal (tool execution) berjalan tanpa hambatan performa yang berarti.
+
+====================================================================================================================================================
+scenario_id: EVAL-07,
+category: Tool Call Invalid,
+query: "apa status TICKET-9999?",
+evaluation_focus: Penanganan data tidak ditemukan,
+expected_behavior_note: Sistem memberi pesan informatif,tidak crash/error mentah,
+
+Actual Response: "Tiket dengan ID 'TICKET-9999' tidak ditemukan. Pastikan ID sudah benar, atau hubungi tim IT Support."
+Waktu Response: 1 detik
+
+Observasi Awal: jawaban benar bahwa tiket tidak ditemukan.
+1. Ketahanan Sistem (Graceful Error Handling):
+Meskipun ID tiket sama sekali tidak ada di dalam database mock, backend FastAPI dan fungsi tool call berhasil menangkap kondisi tersebut tanpa memicu Internal Server Error (HTTP 500) atau crash pada aplikasi.
+
+2. Kualitas Pesan Informatif:
+Respons yang diberikan kepada pengguna sangat jelas, sopan, dan memberikan instruksi tindak lanjut yang dapat dilakukan (actionable), yaitu memeriksa kembali ID atau menghubungi IT Support.
+
+3. Latency:
+Waktu respons tetap stabil di angka 1 detik.
+
+====================================================================================================================================================
+scenario_id: EVAL-08,
+category: Tool Call Ambigu,
+query: "tiket saya gimana ya?",
+evaluation_focus: Penanganan permintaan tanpa ID eksplisit,
+expected_behavior_note: Sistem meminta klarifikasi ID tiket,bukan menebak,
+
+Actual Response: "Mohon sertakan ID tiket (format: TICKET-XXXX) pada pertanyaan Anda."
+Waktu Response: 1 detik
+
+Observasi Awal: jawaban sudah benar, bahwa jika user menanyakan status tiket, user perlu menyertakan ticket-id.
+1. Keberhasilan Validasi Parameter (Input Guardrail):
+Router mendeteksi bahwa kueri mengarah ke status tiket (intent: ticket_status), namun fungsi ekstraksi regex (extract_ticket_id) tidak menemukan pola ID tiket yang valid (TICKET-XXXX). Alih-alih mengalami error atau menebak tiket milik pengguna lain, sistem menghentikan proses eksekusi dan mengembalikan pesan validasi.
+
+2. Kualitas Respons:
+Pesan yang diberikan sangat spesifik, langsung memberitahu pengguna format yang dibutuhkan (TICKET-XXXX), sehingga interaksi tetap terasa informatif dan terarah.
+
+3. Latency:
+Waktu respons tetap sangat stabil di angka 1 detik.
+
+====================================================================================================================================================
+scenario_id: EVAL-09,
+category: Routing Ambigu,
+query: "kenapa laptop saya lambat dan gimana cara cek tiket yang saya buat soal itu?",
+evaluation_focus: Kemampuan router menangani query campuran (informasi + aksi),
+expected_behavior_note: Amati intent mana yang dipilih dan apakah masuk akal; catat sebagai temuan kualitatif,
+
+Actual Response: "Mohon sertakan ID tiket (format: TICKET-XXXX) pada pertanyaan Anda."
+Waktu Response: 1,12 detik
+
+Observasi Awal:
+1. Perilaku Router (Intent Selection):
+Pertanyaan pengguna memiliki dua intent sekaligus:
+- FAQ Intent: Pertanyaan kendala teknis ("kenapa laptop saya lambat").
+- Tool Call Intent: Pertanyaan mengecek status tiket ("gimana cara cek tiket yang saya buat").
+Dalam router.py, karena terdapat kata kunci "tiket" dan "cek tiket", logika fallback/LLM memilih intent ticket_status secara dominan.
+
+2. Kelemahan Arsitektur (Loss of Context):
+Karena router hanya memilih satu jalur tunggal (ticket_status), informasi mengenai solusi laptop lambat dari modul RAG/FAQ terabaikan sepenuhnya.
+Sistem hanya mendeteksi bahwa ID tiket tidak ada, lalu mengembalikan pesan validasi Mohon sertakan ID tiket....
+Akibatnya, pengguna tidak mendapatkan jawaban atas pertanyaan utamanya (kenapa laptop lambat).
+
+3. Root cause: Logika router bersifat single-label classification (hanya memilih satu jalur faq ATAU ticket_status). Router belum dirancang untuk multi-intent extraction atau memberikan jawaban komposit (menjawab bagian FAQ terlebih dahulu, lalu meminta ID tiket untuk bagian pelacakan status)
+
+====================================================================================================================================================
+scenario_id: EVAL-10,
+category: Konsistensi,
+query: "berapa hari cuti tahunan yang saya dapat?",
+evaluation_focus: Konsistensi jawaban terhadap query yang maknanya sama dengan EVAL-01,
+expected_behavior_note: Jawaban harus konsisten dengan EVAL-01 meski kalimat beda,
+
+Actual Response: "Karyawan tetap mendapat jatah 12 hari cuti tahunan yang dapat diambil setelah masa kerja minimal 3 bulan."
+Waktu Response: 1.51 detik
+
+Observasi Awal: jawaban konsisten
+1. Konsistensi Data & Fakta:
+Respons yang dihasilkan persis sama dengan hasil EVAL-01 (12 hari cuti setelah masa kerja minimal 3 bulan), membuktikan bahwa sistem stabil dalam mengambil dan menyajikan informasi dasar dari knowledge base tanpa mengalami pergeseran informasi (drift).
+
+2. Ketahanan terhadap Variasi Kueri:
+Meskipun struktur kalimat pengujian divariasikan, mekanisme retrieval dan LLM tetap mengembalikan fakta yang seragam dan akurat.
+
+3. Latency:
+Waktu respons 1.51 detik sangat stabil dan efisien.
+
+====================================================================================================================================================
+scenario_id: EVAL-11,
+category: Beban Panjang,
+query: "Tolong jelaskan sedetail-detailnya seluruh kebijakan cuti, reset password, permintaan perangkat, dan proses onboarding sekaligus dalam satu jawaban.",
+evaluation_focus: Latency & kualitas jawaban pada query kompleks/panjang,
+expected_behavior_note: Amati waktu respons dan apakah jawaban tetap relevan atau melebar ke luar konteks,
+
+Actual Response: "Hubungi tim IT Support melalui tiket untuk reset password akun laptop, verifikasi identitas akan dilakukan sebelum reset dilakukan."
+Waktu Response: 1,18 detik
+
+Observasi Awal:
+1. Catatan Evaluasi & Temuan Kualitatif (Evidence)
+Anomali Latency vs Kompleksitas:
+Berbeda dengan hipotesis awal bahwa query sangat panjang akan memicu latency tinggi (seperti lonjakan token hingga ribuan), waktu respons sistem justru sangat cepat (1,18 detik) karena modul semantic_search pada rag.py hanya mengambil top_k=3 dokumen teratas (chunk tunggal terbaik) berdasarkan skor kemiripan vektor TF-IDF.
+
+2. Kegagalan Menjawab Kueri Komposit (Loss of Scope):
+Karena kueri meminta penjelasan menyeluruh (kebijakan cuti, reset password, permintaan perangkat, dan onboarding sekaligus), sistem seharusnya menyusun rangkuman gabungan dari berbagai dokumen knowledge base.
+Namun, karena keterbatasan retrieval (top_k=3 chunks), sistem hanya mengambil potongan dokumen yang paling dominan (dalam hal ini terkait reset password), sehingga mengabaikan tiga topik lainnya (cuti, perangkat, dan onboarding).
+
+3. Root cause: Parameter top_k yang terlalu kecil (hanya 3 chunk) dan ketiadaan mekanisme query decomposition atau map-reduce summarization membuat sistem gagal merangkum dokumen lintas kategori secara komprehensif ketika pengguna meminta informasi gabungan dalam satu waktu.
+
+
+====================================================================================================================================================
+scenario_id: EVAL-12,
+category: Resource/Token,
+query: "halo",
+evaluation_focus: Baseline penggunaan token untuk query sangat singkat,
+expected_behavior_note: Bandingkan token usage query ini vs EVAL-11 sebagai referensi efisiensi,
+
+Actual Response: "Sisa cuti dapat dibawa maksimal 6 hari ke tahun berikutnya, dan harus digunakan dalam kuartal pertama tahun tersebut."
+Waktu Response: detik
+
+Observasi Awal: loss of intent
+1. Kecepatan Eksekusi (High Performance):
+Dengan waktu respons hanya 0,27 detik, ini adalah rekor tercepat di antara seluruh 12 skenario. Hal ini karena teks kueri yang sangat pendek menghasilkan vektor pencarian yang sangat sederhana.
+
+2. Anomali Respons vs Sapaan (Context Mismatch):
+Pengguna hanya menyapa "halo", namun sistem merespons dengan kalimat teknis kebijakan cuti ("Sisa cuti dapat dibawa maksimal 6 hari...").
+Root cause: Modul semantic search pada rag.py selalu mencari potongan dokumen terdekat (top-k chunks) tanpa memfilter apakah sebuah query adalah sapaan ramah (greeting) atau pertanyaan informatif. Akibatnya, sapaan singkat tetap dicocokkan secara paksa dengan dokumen FAQ teratas di dalam database.
+
+3. Perbandingan Efisiensi Token (EVAL-12 vs EVAL-11):
+Meskipun kueri EVAL-12 sangat singkat ("halo"), jumlah token output yang dihasilkan tetap diatur oleh ukuran potongan dokumen FAQ (answer) yang diambil secara default oleh fallback atau struktur LLM, sehingga konsumsi tokennya kurang lebih mirip dengan query standar (~100-150 token), tidak sekecil yang diepektasikan untuk sapaan murni.
+
+===================================================================================================================================================
+
+
